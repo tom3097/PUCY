@@ -1,0 +1,146 @@
+SUBDESIGN wef
+(
+    PS_CLK_CPY: input;                  % sygnal zegara klawiatury %
+    CLK: input;                         % zegar wewnetrzny FPGA %
+    CLR: input;                         % sygnal zerowania ukladu %
+    PS_DATA_IN_CPY: input;              % sygnal danych klawiatury %
+    WEF_GO: input;                      % sygnal synchronizacji automatu %
+    WEF_OK: output;                     % sygnal synchronizacji automatu %
+    WE_D[7..0]: output;                 % pobrane dane %
+)
+VARIABLE
+    PS_AUT : machine with states        % automat pomocniczy czuly na zbocze zegara klawiatury,
+                                            wczytujacy kolejne bity %
+    (S0, S1, S2, S3, S4);
+    WEF_AUT: machine with states        % automat sluzacy do pobierania bajtu danych z klawiatury %
+    (M0, M1, M2, M3);
+    WEF_OK: DFF;                        % sygnal synchronizacji automatu %
+    WE_D[7..0]: DFF;                    % pobrane dane %
+    PS_LICZNIK[3..0] : DFF;             % licznik wykorzystywany przy wczytywaniu kolejnych bitow
+                                            z klawiatury %
+    PS_DATA[7..0] : DFF;                % przechowuje bajt wczytany z klawiatury %
+    PS_PARITY : DFF;                    % bit parzystosci %
+    PS_DATA_IN : DFF;                   % przechowuje wczytany z klawiatury bit %
+    PS_CLK : DFF;                       % przechowuje wartosc wejscia zegarowego z klawiatury %
+BEGIN
+    PS_DATA_IN.clk = CLK;
+    PS_DATA_IN.clrn = CLR;
+    PS_CLK.clk = CLK;
+    PS_CLK = PS_CLK_CPY;
+    PS_DATA_IN = PS_DATA_IN_CPY;  
+    PS_AUT.clk = !PS_CLK;
+    PS_AUT.reset = !CLR;
+    WEF_AUT.clk = CLK;
+    WEF_AUT.reset = !CLR;
+    PS_DATA[].clk = !PS_CLK;
+    PS_DATA[].clrn = CLR;
+    PS_LICZNIK[].clk = !PS_CLK;
+    PS_LICZNIK[].clrn = CLR;
+    PS_PARITY.clk = !PS_CLK;
+    PS_PARITY.clrn = CLR;
+    WE_D[].clk = CLK;
+    WE_D[].clrn = CLR;
+    WEF_OK.clk = CLK;
+    WEF_OK.clrn = CLR;
+
+    % automat pomocniczy wczytujacy bity %
+    CASE PS_AUT is
+        WHEN S0 =>  PS_DATA[] = 0;
+                    PS_LICZNIK[] = 0;
+                    PS_PARITY = GND;
+                    IF PS_DATA_IN == GND THEN
+                        PS_AUT = S1;
+                    ELSE
+                        PS_AUT = S0;
+                    END IF;          
+        WHEN S1 =>  PS_DATA[] = (PS_DATA_IN, PS_DATA[7..1]);
+                    IF PS_PARITY $ PS_DATA_IN THEN
+                        PS_PARITY = VCC;
+                    ELSE
+                        PS_PARITY = GND;
+                    END IF;
+                    if PS_LICZNIK[] == 7 THEN
+                        PS_AUT = S2;
+                    ELSE
+                        PS_LICZNIK[] = PS_LICZNIK[]+1;
+                        PS_AUT = S1;
+                    END IF;               
+        WHEN S2 =>  PS_DATA[] = PS_DATA[];
+                    IF PS_PARITY != PS_DATA_IN THEN
+                        PS_AUT = S3;
+                    ELSE
+                        PS_AUT = S4;
+                    END IF;
+        WHEN S3 =>  PS_DATA[] = PS_DATA[];
+                    PS_AUT = S0;
+        WHEN S4 =>  PS_DATA[] = PS_DATA[];
+                    PS_AUT = S0;
+    END CASE;
+
+    % automat wejsciowy %
+    CASE WEF_AUT IS
+        WHEN M0 =>
+            WEF_OK = GND;
+            IF WEF_GO == VCC THEN
+                WEF_AUT = M1;
+            ELSE
+                WEF_AUT = M0;
+            END IF;
+            WE_D[] = WE_D[];
+        WHEN M1 =>
+            WEF_OK = GND;
+            IF PS_AUT == S3 THEN
+                IF PS_DATA[] == H"F0" THEN
+                    WEF_AUT = M2;
+                ELSE
+                    WEF_AUT = M1;
+                END IF;
+            ELSE
+                WEF_AUT = M1;
+            END IF;
+            WE_D[] = WE_D[];
+        WHEN M2 =>    % czekanie na bajt danych %
+            WEF_OK = GND;
+            IF PS_AUT == S3 THEN
+                IF PS_DATA[] == H"F0" THEN
+                    WEF_AUT = M2;
+                    WE_D[] = WE_D[];
+                ELSE
+                    IF PS_DATA[] == H"45" # PS_DATA[] == H"16" # PS_DATA[] == H"1e" #PS_DATA[] == H"26" #
+                       PS_DATA[] == H"25" # PS_DATA[] == H"2e" # PS_DATA[] == H"36" # PS_DATA[] == H"3d" #
+                       PS_DATA[] == H"3e" # PS_DATA[] == H"46" # PS_DATA[] == H"4e" # PS_DATA[] == H"55" THEN
+                        WEF_AUT = M3;
+                        TABLE PS_DATA[] => WE_D[];
+                            H"45" => 48;
+                            H"16" => 49;
+                            H"1E" => 50;
+                            H"26" => 51;
+                            H"25" => 52;
+                            H"2e" => 53;
+                            H"36" => 54;
+                            H"3d" => 55;
+                            H"3e" => 56;
+                            H"46" => 57;
+                            H"4e" => 45;
+                            H"55" => 43;
+                        END TABLE;
+                    ELSE
+                        WEF_AUT = M0;
+                        WE_D[] = WE_D[];
+                    END IF;
+                END IF;
+            ELSE
+                WEF_AUT = M2;
+                WE_D[] = WE_D[];
+            END IF;
+        WHEN M3 =>
+            WE_D[] = WE_D[];
+            WEF_OK = VCC;
+            IF WEF_GO == VCC THEN
+                WEF_AUT = M3;
+            ELSE
+                WEF_AUT = M0;
+            END IF;       
+    END CASE;
+END;
+

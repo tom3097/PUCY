@@ -1,0 +1,240 @@
+SUBDESIGN wyf
+(
+    CLK: input;                              % zegar wewnetrzny %    
+    CLR: input;                              % sygnal zerowania ukladu %
+    WYF_GO: input;                           % sygnal synchronizacji automatu %
+    WYF_OK: output;                          % sygnal synchronizacji automatu %
+    WYF_D[7..0]: input;                      % dane otrzymane do wyswietlenia %
+    LCD_DATA[7..0]: output;                  % szyna danych wyswietlacza %
+    LCD_RW: output;                          % flaga RW wyswietlacza LCD %
+    LCD_RS: output;                          % flaga RS wyswietlacza LCD %
+    LCD_EN: output;                          % flaga EN wyswietlacza LCD %
+)
+VARIABLE
+    LCD_INIT_AUT : machine with states       % automat pomocniczy sluzacy do zainicjowania wyswietlacza LCD %
+    (LCD_I0, LCD_I1, LCD_I2, LCD_I3, LCD_I4, LCD_I5, LCD_I6, LCD_I7, LCD_I8, LCD_I9,
+     LCD_I10, LCD_I11, LCD_I12, LCD_I13, LCD_I14, LCD_I15, LCD_I16, LCD_I17);
+    WYF_AUT: machine with states             % automat sluzacy do wyswietlania bajtu danych na wyswietlaczu %
+    (W0, W1);
+    LCD_DATA[7..0] : DFF;                    % szyna danych wyswietlacza %
+    LCD_RW : DFF;                            % flaga RW wyswietlacza LCD %
+    LCD_RS : DFF;                            % flaga RS wyswietlacza LCD %
+    LCD_EN : DFF;                            % flaga EN wyswietlacza LCD %
+    LCD_WRITE_COUNTER[31..0] : DFF;          % licznik wykorzystywany przy operacji wysylania bajtu danych na
+                                                wyswietlacz LCD %
+    LCD_INIT_COUNTER[31..0] : DFF;           % licznik wykorzystywany przy operacjach inicjalizacji
+                                                wyswietlacza LCD %
+    WYF_OK: DFF;                             % sygnal synchronizacji automatu %
+BEGIN
+    LCD_INIT_AUT.clk = CLK;
+    LCD_INIT_AUT.reset = !CLR;
+    WYF_AUT.clk = CLK;
+    WYF_AUT.reset = !CLR;
+    LCD_DATA[].clk = CLK;
+    LCD_DATA[].clrn = CLR;
+    LCD_RW.clk = CLK;
+    LCD_RW.clrn = CLR;
+    LCD_RS.clk = CLK;
+    LCD_RS.clrn = CLR;
+    LCD_EN.clk = CLK;
+    LCD_EN.clrn = CLR;
+    LCD_WRITE_COUNTER[31..0].clk = CLK;
+    LCD_WRITE_COUNTER[31..0].clrn = CLR;
+    LCD_INIT_COUNTER[].clrn = CLR;
+    LCD_INIT_COUNTER[].clk = CLK;
+    WYF_OK.clk = CLK;
+    WYF_OK.clrn = CLR;
+
+    %automat pomocniczy inicjalizujacy wyswietlacz %
+    IF LCD_INIT_AUT != LCD_I17 THEN
+        LCD_INIT_COUNTER[] = LCD_INIT_COUNTER[] + 1;
+        LCD_RW = GND;
+        LCD_RS = GND;
+    ELSE
+        LCD_INIT_COUNTER[] = LCD_INIT_COUNTER[];
+        LCD_RW = GND;
+        LCD_RS = VCC;
+    END IF;
+    CASE LCD_INIT_AUT IS
+        WHEN LCD_I0 => % poczatkowe oczekiwanie %
+            LCD_DATA[] = B"00110000";
+            LCD_EN = GND;
+            IF LCD_INIT_COUNTER[] < 2000000 THEN
+                LCD_INIT_AUT = LCD_I0;
+            ELSE
+                LCD_INIT_AUT = LCD_I1;
+            END IF;
+        WHEN LCD_I1 => % pierwszy impuls inicjalizacji %
+            LCD_DATA[] = B"00110000";
+            LCD_EN = VCC;
+            IF LCD_INIT_COUNTER[] < 2200000 THEN
+                LCD_INIT_AUT = LCD_I1;
+            ELSE
+                LCD_INIT_AUT = LCD_I2;
+            END IF;
+        WHEN LCD_I2 => % oczekiwanie po pierwszym impulsie %
+            LCD_DATA[] = B"00110000";
+            LCD_EN = GND;
+            IF LCD_INIT_COUNTER[] < 2700000 THEN
+                LCD_INIT_AUT = LCD_I2;
+            ELSE
+                LCD_INIT_AUT = LCD_I3;
+            END IF;
+        WHEN LCD_I3 => % drugi impuls inicjalizacji %
+            LCD_DATA[] = B"00110000";
+            LCD_EN = VCC;
+            IF LCD_INIT_COUNTER[] < 2900000 THEN
+                LCD_INIT_AUT = LCD_I3;
+            ELSE
+                LCD_INIT_AUT = LCD_I4;
+            END IF;
+        WHEN LCD_I4 => % oczekiwanie po drugim impulsie %
+            LCD_DATA[] = B"00110000";
+            LCD_EN = GND;
+            IF LCD_INIT_COUNTER[] < 2904000 THEN
+                LCD_INIT_AUT = LCD_I4;
+            ELSE
+                LCD_INIT_AUT = LCD_I5;
+            END IF;
+        WHEN LCD_I5 => % trzeci impuls inicjalizacji %
+            LCD_DATA[] = B"00110000";
+            LCD_EN = VCC;
+            IF LCD_INIT_COUNTER[] < 3104000 THEN
+                LCD_INIT_AUT = LCD_I5;
+            ELSE
+                LCD_INIT_AUT = LCD_I6;
+            END IF;
+        WHEN LCD_I6 => % oczekiwanie po trzecim impulsie %
+            LCD_DATA[] = B"00111000";
+            LCD_EN = GND;
+            IF LCD_INIT_COUNTER[] < 3108000 THEN
+                LCD_INIT_AUT = LCD_I6;
+            ELSE
+                LCD_INIT_AUT = LCD_I7;
+            END IF;
+        %sygnaly po pierwszych trzech sygnalach inicjalizacji%
+        WHEN LCD_I7 =>                 % sygnal podania szerokosci szyny, wielkosci znakow
+                                      i ilosci linii, sygnal function set%
+            LCD_DATA[] = B"00111000";
+            LCD_EN = VCC;
+            IF LCD_INIT_COUNTER[] < 3109000 THEN
+                LCD_INIT_AUT = LCD_I7;
+            ELSE
+                LCD_INIT_AUT = LCD_I8;
+            END IF;
+        WHEN LCD_I8 => % oczekiwanie po function set%
+            LCD_DATA[] = B"00001000";
+            LCD_EN = GND;
+            IF LCD_INIT_COUNTER[] < 3111000 THEN
+                LCD_INIT_AUT = LCD_I8;
+            ELSE
+                LCD_INIT_AUT = LCD_I9;
+            END IF;
+        WHEN LCD_I9 => % sygnal display off %
+            LCD_DATA[] = B"00001000";
+            LCD_EN = VCC;
+            IF LCD_INIT_COUNTER[] < 3112000 THEN
+                LCD_INIT_AUT = LCD_I9;
+            ELSE
+                LCD_INIT_AUT = LCD_I10;
+            END IF;
+        WHEN LCD_I10 => % oczekiwanie po display off %
+            LCD_DATA[] = B"00000001";
+            LCD_EN = GND;
+            IF LCD_INIT_COUNTER[] < 3114000 THEN
+                LCD_INIT_AUT = LCD_I10;
+            ELSE
+                LCD_INIT_AUT = LCD_I11;
+            END IF;
+        WHEN LCD_I11 => % sygnal clear %
+            LCD_DATA[] = B"00000001";
+            LCD_EN = VCC;
+            IF LCD_INIT_COUNTER[] < 3311000 THEN
+                LCD_INIT_AUT = LCD_I11;
+            ELSE
+                LCD_INIT_AUT = LCD_I12;
+            END IF;
+        WHEN LCD_I12 => % oczekiwanie po clear %
+            LCD_DATA[] = B"00000110";
+            LCD_EN = GND;
+            IF LCD_INIT_COUNTER[] < 3511000 THEN
+                LCD_INIT_AUT = LCD_I12;
+            ELSE
+                LCD_INIT_AUT = LCD_I13;
+            END IF;
+        WHEN LCD_I13 => % sygnal entry mode set %
+            LCD_DATA[] = B"00000110";
+            LCD_EN = VCC;
+            IF LCD_INIT_COUNTER[] < 3512000 THEN
+                LCD_INIT_AUT = LCD_I13;
+            ELSE
+                LCD_INIT_AUT = LCD_I14;
+            END IF;
+        WHEN LCD_I14 => % oczekiwanie po entry mode set %
+            LCD_DATA[] = B"00001111";
+            LCD_EN = GND;
+            IF LCD_INIT_COUNTER[] < 3514000 THEN
+                LCD_INIT_AUT = LCD_I14;
+            ELSE
+                LCD_INIT_AUT = LCD_I15;
+            END IF;
+        WHEN LCD_I15 => % sygnal display on %
+            LCD_DATA[] = B"00001111";
+            LCD_EN = VCC;
+            IF LCD_INIT_COUNTER[] < 3515000 THEN
+                LCD_INIT_AUT = LCD_I15;
+            ELSE
+                LCD_INIT_AUT = LCD_I16;
+            END IF;
+        WHEN LCD_I16 => % oczekiwanie po displayon %
+            LCD_DATA[] = B"00001111";
+            LCD_EN = GND;
+            IF LCD_INIT_COUNTER[] < 3517000 THEN
+                LCD_INIT_AUT = LCD_I16;
+            ELSE
+                LCD_INIT_AUT = LCD_I17;
+            END IF;
+        WHEN LCD_I17 => % sygnal display on %
+            LCD_INIT_AUT = LCD_I17;
+    END CASE;
+
+    % automat wyjsciowy %
+    CASE WYF_AUT IS
+        WHEN W0 =>
+            LCD_WRITE_COUNTER[] = 0;
+            IF LCD_INIT_AUT == LCD_I17 THEN
+                WYF_OK = VCC;
+                LCD_EN = GND;
+                IF WYF_GO == VCC THEN
+                    WYF_AUT = W1;
+                    LCD_DATA[] = WYF_D[];
+                    WYF_OK = GND;          
+                ELSE
+                    WYF_AUT = W0;
+                END IF;
+            ELSE
+                WYF_OK = GND;
+            END IF;
+        WHEN W1 =>
+            WYF_OK = GND;
+            LCD_DATA[] = LCD_DATA[];
+            IF LCD_WRITE_COUNTER[] < 2 THEN         % wczesniejsze wpisanie danych tak, aby dane
+                                                      byly gotowe na zbocze narastajace LCD_EN%
+                LCD_WRITE_COUNTER[] = LCD_WRITE_COUNTER[] + 1;
+                LCD_EN = GND; 
+                WYF_AUT = W1;
+            ELSIF LCD_WRITE_COUNTER[] < 1000 THEN
+                LCD_WRITE_COUNTER[] = LCD_WRITE_COUNTER[] + 1;
+                LCD_EN = VCC;
+                WYF_AUT = W1;
+            ELSIF LCD_WRITE_COUNTER[] < 3000 THEN
+                LCD_WRITE_COUNTER[]  = LCD_WRITE_COUNTER[] + 1;
+                LCD_EN = GND;
+                WYF_AUT = W1;
+            ELSE
+                LCD_WRITE_COUNTER[]  = LCD_WRITE_COUNTER[];
+                LCD_EN = GND;
+                WYF_AUT = W0;
+            END IF;
+    END CASE;
+END;

@@ -1,0 +1,115 @@
+INCLUDE "WEF.INC";
+INCLUDE "WYF.INC";
+
+SUBDESIGN bpd
+(
+    CLK: input;                     % zegar wewnetrzny %
+    CLR: input;                     % sygnal zerowania ukladu %
+    PS_CLK_CPY: input;              % sygnal zegara klawiatury %
+    PS_DATA_IN_CPY: input;          % sygnal danych klawiatury %
+    BPD_LED : output;               % flaga oznaczajaca stan: GND - czekanie na dane
+                                                              VCC - wyswietlanie danych %
+    LCD_DATA[7..0]: output;         % szyna danych wyswietlacza %
+    LCD_RW: output;                 % flaga RW wyswietlacza LCD %
+    LCD_RS: output;                 % flaga RS wyswietlacza LCD %
+    LCD_EN: output;                 % flaga EN wyswietlacza LCD %
+)
+VARIABLE
+    BPD_AUT: machine with states    % automat sluzacy do zarzadzania wczytywaniem i wyswietlaniem %
+    (B0, B1, B2);
+    LCD_RW : DFF;                   % flaga RW wyswietlacza LCD %
+    LCD_RS : DFF;                   % flaga RS wyswietlacza LCD %
+    LCD_EN : DFF;                   % flaga EN wyswietlacza LCD %
+    WYF_D[7..0]: DFF;               % dane przekazywane do modulu wyjsciowego %
+    WE_D[7..0]: DFF;                % dane pobierane od modulu wejsciowego %
+    BPD_WE_D[7..0]: dff;            % bufor posredniczacy w przekazywaniu danych miedzy modulem wejsciowym
+                                      a wyjsciowym %            
+    BPD_LED : DFF;                  % flaga oznaczajaca stan: GND - czekanie na dane
+                                                              VCC - wyswietlanie danych %
+    WEF_GO: DFF;                    % sygnal synchronizacji automatu %
+    WEF_OK: DFF;                    % sygnal synchronizacji automatu %
+    WYF_OK: DFF;                    % sygnal synchronizacji automatu %
+    WYF_GO: DFF;                    % sygnal synchronizacji automatu %
+    LCD_DATA[7..0]: DFF;            % szyna danych wyswietlacza %
+    WE: WEF;                        % modul wejsciowy %
+    WY: WYF;                        % modul wyjsciowy %
+BEGIN
+    LCD_RW.clk = CLK;
+    LCD_RW.clrn = CLR;
+    LCD_RS.clk = CLK;
+    LCD_RS.clrn = CLR;
+    LCD_EN.clk = CLK;
+    LCD_EN.clrn = CLR;
+    WEF_GO.clk = CLK;
+    WEF_GO.clrn = CLR;
+    WEF_OK.clk = CLK;
+    WEF_OK.clrn = CLR;
+    WYF_GO.clk = CLK;
+    WYF_GO.clrn = CLR;
+    WYF_OK.clk = CLK;
+    WYF_OK.clrn = CLR;
+    BPD_AUT.clk = CLK;
+    BPD_AUT.reset = !CLR;
+    LCD_DATA[7..0].clk = CLK;
+    LCD_DATA[7..0].clrn = CLR;
+    WE_D[7..0].clk = CLK;
+    WE_D[7..0].clrn = CLR;
+    WYF_D[7..0].clk = CLK;
+    WYF_D[7..0].clrn = CLR;
+
+    % podlaczanie wejscia do we %
+    WE.PS_CLK_CPY = PS_CLK_CPY;
+    WE.CLK = CLK;
+    WE.CLR = CLR;
+    WE.PS_DATA_IN_CPY = PS_DATA_IN_CPY;
+    WE.WEF_GO = WEF_GO;
+    WEF_OK = WE.WEF_OK;
+    WE_D[] = WE.WE_D[];
+   
+    % podlaczamy wyjscie do wy %
+    WY.CLK = CLK;
+    WY.CLR = CLR;
+    WY.WYF_GO = WYF_GO;
+    WYF_OK = WY.WYF_OK;
+    WY.WYF_D[] = WYF_D[];
+    LCD_DATA[] = WY.LCD_DATA[];
+    LCD_RW = WY.LCD_RW;
+    LCD_EN = WY.LCD_EN;
+    LCD_RS = WY.LCD_RS;
+    BPD_WE_D[].clk = CLK;
+    BPD_WE_D[].clrn = CLR;
+    BPD_LED.clk = CLK;
+    BPD_LED.clrn = CLR;
+
+    % poczatek glownego automatu %
+    CASE BPD_AUT IS
+        WHEN B0 =>
+            WYF_GO = GND;
+            WEF_GO = VCC;
+            BPD_LED = VCC;
+            IF WEF_OK == VCC THEN
+                BPD_WE_D[] = WE_D[];
+                BPD_AUT = B1;
+            ELSE
+                BPD_AUT = B0;
+            END IF;
+        WHEN B1 =>
+            BPD_LED = GND;
+            WYF_GO = VCC;
+            WEF_GO = GND;
+            BPD_WE_D[] = BPD_WE_D[];
+            WYF_D[] = BPD_WE_D[];
+            IF WYF_OK == VCC THEN
+                BPD_AUT = B2;
+            ELSE
+                BPD_AUT = B1;
+            END IF;
+        WHEN B2 =>
+            BPD_WE_D[] = BPD_WE_D[];
+            IF WYF_OK == GND THEN
+                BPD_AUT = B0;
+            ELSE
+                BPD_AUT = B2;
+            END IF;
+    END CASE;
+END;
